@@ -1,10 +1,10 @@
-import react, { useEffect, useState } from 'react';
-import socketIo, { Socket } from 'socket.io-client';
+import {useEffect, useState} from 'react';
+import socketIo, {Socket} from 'socket.io-client';
 import Status from 'components/status';
-import Peer, { ConnectionOffer } from 'components/peer';
-import { DefaultEventsMap } from 'socket.io-client/build/typed-events';
+import Peer, {ConnectionOffer, IceCandidate} from 'components/peer';
+import {DefaultEventsMap} from 'socket.io-client/build/typed-events';
 
-const ENDPOINT = 'ws://localhost:8080';
+const ENDPOINT = `https://${window.location.hostname}:8080`;
 
 
 function removeByValue<T>(array: T[], value: T) {
@@ -24,6 +24,8 @@ type RequestMap = {
     [key: string]: any; // (any -> RTCRequest(offer))
 }
 
+type CandidateMap = RequestMap;
+
 const HomeScreen: React.FC = () => {
 
 
@@ -31,7 +33,8 @@ const HomeScreen: React.FC = () => {
     const [peers, setPeers] = useState<string[]>([]);
     const [sIo, setSocketIo] = useState<Socket<DefaultEventsMap, DefaultEventsMap> | undefined>(undefined);
     const [peerAnswers, setPeerAnswers] = useState<AnswersMap>({});
-    const [peerRequets, setPeerRequests] = useState<RequestMap>({});
+    const [peerRequests, setPeerRequests] = useState<RequestMap>({});
+    const [peerCandidates, setPeerCandidates] = useState<CandidateMap>({});
 
     useEffect(() => {
         // on init;
@@ -39,7 +42,7 @@ const HomeScreen: React.FC = () => {
         io.on('connect', () => setConnected(true));
 
 
-        io.on('sockets-list', (message: any) => setPeers(message))
+        io.on('sockets-list', (message: any) => setPeers(message));
 
         io.on('socket-joined', (message: any) => {
             console.log(message);
@@ -55,7 +58,7 @@ const HomeScreen: React.FC = () => {
 
             setPeerRequests(requests => ({
                 ...requests,
-                [request.callerId]: request.request
+                [request.callerId]: request.request,
             }));
             // const answer = acceptRequest(request);
 
@@ -66,9 +69,18 @@ const HomeScreen: React.FC = () => {
         io.on('connection-accepted', answer => {
             setPeerAnswers(answers => ({
                 ...answers,
-                [answer.receiverId]: answer.answer
-            }))
-        })
+                [answer.receiverId]: answer.answer,
+            }));
+        });
+
+
+        io.on('connection-candidate', message => {
+            console.log(message);
+            setPeerCandidates(candidates => ({
+                ...candidates,
+                [message.peerId]: message.candidate,
+            }));
+        });
 
         setSocketIo(io);
 
@@ -78,44 +90,53 @@ const HomeScreen: React.FC = () => {
         if (sIo) {
             sIo.emit('request-connection', {
                 receiverId: socketId,
-                request: offer
+                request: offer,
             });
         }
-    }
+    };
 
     const acceptSocketRequest = (socketId: string, answer: ConnectionOffer) => {
 
         if (!sIo) return;
         sIo.emit('connection-accepted', {
             callerId: socketId,
-            answer
+            answer,
         });
-    }
+    };
+
+    const iceCandidate = (socketId: string, candidate: IceCandidate) => {
+        if (!sIo) return;
+        sIo.emit('connection-candidate', {
+            receiverId: socketId,
+            candidate,
+        });
+    };
 
     return (
         <div>
             <div>
                 <Status
                     text="Is connected to WS server"
-                    value={isConnected} />
+                    value={isConnected}/>
             </div>
             {
                 peers.map(peer => (
                     <Peer
+                        key={peer}
                         id={peer}
                         requestCallback={connectToSocket}
                         acceptCallback={acceptSocketRequest}
+                        iceCandidateCallback={iceCandidate}
 
-                        request={peerRequets[peer]}
+                        request={peerRequests[peer]}
                         answer={peerAnswers[peer]}
-
+                        iceCandidate={peerCandidates[peer]}
                     />
-
                 ))
             }
         </div>
     );
-}
+};
 
 
 export default HomeScreen;
